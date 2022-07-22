@@ -1,4 +1,10 @@
-﻿using System;
+﻿//
+// Author: https://github.com/dkxce
+// .Net 2.0+
+// WinXP+
+// 
+
+using System;
 using System.Threading;
 using System.Runtime.InteropServices;
 using System.Diagnostics;

@@ -183,46 +183,30 @@ namespace device_onoff
         public int HwProfile;
     }
 
-    internal class DeviceOO
+    internal static class SetupAPIDLL
     {
-
         private const string setupapi = "setupapi.dll";
-
-        private DeviceOO()
-        {
-        }
-
+        
         [DllImport(setupapi, CallingConvention = CallingConvention.Winapi, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool SetupDiCallClassInstaller(DiFunction installFunction, SafeDeviceInfoSetHandle deviceInfoSet, [In()]
-ref DeviceInfoData deviceInfoData);
+        public static extern bool SetupDiCallClassInstaller(DiFunction installFunction, SafeDeviceInfoSetHandle deviceInfoSet, [In()] ref DeviceInfoData deviceInfoData);
 
         [DllImport(setupapi, CallingConvention = CallingConvention.Winapi, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool SetupDiEnumDeviceInfo(SafeDeviceInfoSetHandle deviceInfoSet, int memberIndex, ref DeviceInfoData deviceInfoData);
 
         [DllImport(setupapi, CallingConvention = CallingConvention.Winapi, CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern SafeDeviceInfoSetHandle SetupDiGetClassDevs([In()]
-ref Guid classGuid, [MarshalAs(UnmanagedType.LPWStr)]
-string enumerator, IntPtr hwndParent, SetupDiGetClassDevsFlags flags);
+        public static extern SafeDeviceInfoSetHandle SetupDiGetClassDevs([In()] ref Guid classGuid, [MarshalAs(UnmanagedType.LPWStr)] string enumerator, IntPtr hwndParent, SetupDiGetClassDevsFlags flags);
 
         /*
         [DllImport(setupapi, CallingConvention = CallingConvention.Winapi, CharSet = CharSet.Unicode, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool SetupDiGetDeviceInstanceId(SafeDeviceInfoSetHandle deviceInfoSet, [In()]
-ref DeviceInfoData did, [MarshalAs(UnmanagedType.LPTStr)]
-StringBuilder deviceInstanceId, int deviceInstanceIdSize, [Out()]
-ref int requiredSize);
+        public static extern bool SetupDiGetDeviceInstanceId(SafeDeviceInfoSetHandle deviceInfoSet, [In()] ref DeviceInfoData did, [MarshalAs(UnmanagedType.LPTStr)] StringBuilder deviceInstanceId, int deviceInstanceIdSize, [Out()] ref int requiredSize);
         */
+
         [DllImport("setupapi.dll", SetLastError = true, CharSet = CharSet.Auto)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool SetupDiGetDeviceInstanceId(
-           IntPtr DeviceInfoSet,
-           ref DeviceInfoData did,
-           [MarshalAs(UnmanagedType.LPTStr)] StringBuilder DeviceInstanceId,
-           int DeviceInstanceIdSize,
-           out int RequiredSize
-        );
+        public static extern bool SetupDiGetDeviceInstanceId( IntPtr DeviceInfoSet, ref DeviceInfoData did, [MarshalAs(UnmanagedType.LPTStr)] StringBuilder DeviceInstanceId, int DeviceInstanceIdSize, out int RequiredSize);
 
         [SuppressUnmanagedCodeSecurity()]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
@@ -232,10 +216,7 @@ ref int requiredSize);
 
         [DllImport(setupapi, CallingConvention = CallingConvention.Winapi, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool SetupDiSetClassInstallParams(SafeDeviceInfoSetHandle deviceInfoSet, [In()]
-ref DeviceInfoData deviceInfoData, [In()]
-ref PropertyChangeParameters classInstallParams, int classInstallParamsSize);
-
+        public static extern bool SetupDiSetClassInstallParams(SafeDeviceInfoSetHandle deviceInfoSet, [In()] ref DeviceInfoData deviceInfoData, [In()] ref PropertyChangeParameters classInstallParams, int classInstallParamsSize);
     }
 
     internal class SafeDeviceInfoSetHandle : SafeHandleZeroOrMinusOneIsInvalid
@@ -248,7 +229,7 @@ ref PropertyChangeParameters classInstallParams, int classInstallParamsSize);
 
         protected override bool ReleaseHandle()
         {
-            return DeviceOO.SetupDiDestroyDeviceInfoList(this.handle);
+            return SetupAPIDLL.SetupDiDestroyDeviceInfoList(this.handle);
         }
 
     }
@@ -256,14 +237,22 @@ ref PropertyChangeParameters classInstallParams, int classInstallParamsSize);
 
     public sealed class DeviceSwitcher
     {
-        public static List<string> ListDevices()
+        public static List<string> ListDevices(ref string DeviceID)
         {
             List<string> res = new List<string>();
             try
             {
-                ManagementObjectSearcher searcher = new ManagementObjectSearcher("root\\CIMV2", "SELECT DeviceID FROM Win32_PnPSignedDriver");
+                ManagementObjectSearcher searcher = new ManagementObjectSearcher("root\\CIMV2", "SELECT DeviceName, DeviceID FROM Win32_PnPSignedDriver");
                 foreach (ManagementObject queryObj in searcher.Get())
+                {
                     res.Add(queryObj["DeviceID"].ToString());
+                    try
+                    {
+                        if(queryObj["DeviceName"].ToString().ToLower().Contains("touch")) 
+                            DeviceID = queryObj["DeviceID"].ToString();
+                    }
+                    catch { };
+                };
             }
             catch { };
             res.Sort();
@@ -292,7 +281,7 @@ ref PropertyChangeParameters classInstallParams, int classInstallParamsSize);
             try
             {
                 // Get the handle to a device information
-                diSetHandle = DeviceOO.SetupDiGetClassDevs(ref ClassGuid, null, IntPtr.Zero, SetupDiGetClassDevsFlags.Present);
+                diSetHandle = SetupAPIDLL.SetupDiGetClassDevs(ref ClassGuid, null, IntPtr.Zero, SetupDiGetClassDevsFlags.Present);
                 // Get the device information data for each matching device.
                 DeviceInfoData[] diData = GetDeviceInfoData(diSetHandle);
                 // Find the index of our instance. i.e. the touchpad mouse - I have 3 mice attached...
@@ -320,35 +309,31 @@ ref PropertyChangeParameters classInstallParams, int classInstallParamsSize);
             int didSize = Marshal.SizeOf(did);
             did.Size = didSize;
             int index = 0;
-            while (DeviceOO.SetupDiEnumDeviceInfo(handle, index, ref did))
+            while (SetupAPIDLL.SetupDiEnumDeviceInfo(handle, index, ref did))
             {
                 data.Add(did);
                 index += 1;
                 did = new DeviceInfoData();
                 did.Size = didSize;
-            }
+            };
             return data.ToArray();
         }
 
         private static int GetIndexOfInstance(SafeDeviceInfoSetHandle handle, DeviceInfoData[] diData, string instanceId)
         {
             const int ERROR_INSUFFICIENT_BUFFER = 122;
-            for (int index = 0; index <= diData.Length - 1; index++)
+            for (int i = 0; i < diData.Length; i++)
             {
                 StringBuilder sb = new StringBuilder(1);
                 int requiredSize = 0;
-                bool result = DeviceOO.SetupDiGetDeviceInstanceId(handle.DangerousGetHandle(), ref diData[index], sb, sb.Capacity, out requiredSize);
+                bool result = SetupAPIDLL.SetupDiGetDeviceInstanceId(handle.DangerousGetHandle(), ref diData[i], sb, sb.Capacity, out requiredSize);
                 if (result == false && Marshal.GetLastWin32Error() == ERROR_INSUFFICIENT_BUFFER)
                 {
                     sb.Capacity = requiredSize;
-                    result = DeviceOO.SetupDiGetDeviceInstanceId(handle.DangerousGetHandle(), ref diData[index], sb, sb.Capacity, out requiredSize);
+                    result = SetupAPIDLL.SetupDiGetDeviceInstanceId(handle.DangerousGetHandle(), ref diData[i], sb, sb.Capacity, out requiredSize);
                 };
-                if (result == false)
-                    throw new Win32Exception();
-                if (instanceId.Equals(sb.ToString()))
-                {
-                    return index;
-                };
+                if (result == false) throw new Win32Exception();
+                if (instanceId.Equals(sb.ToString())) return i;                
             };
             return -1;
         }
@@ -360,18 +345,14 @@ ref PropertyChangeParameters classInstallParams, int classInstallParamsSize);
             @params.DiFunction = DiFunction.PropertyChange;
             @params.Scope = Scopes.Global;
             if (enable)
-            {
                 @params.StateChange = StateChangeAction.Enable;
-            }
             else
-            {
                 @params.StateChange = StateChangeAction.Disable;
-            };
-
-            bool result = DeviceOO.SetupDiSetClassInstallParams(handle, ref diData, ref @params, Marshal.SizeOf(@params));
-            if (result == false) throw new Win32Exception();
-            result = DeviceOO.SetupDiCallClassInstaller(DiFunction.PropertyChange, handle, ref diData);
-            if (result == false)
+            
+            bool res = SetupAPIDLL.SetupDiSetClassInstallParams(handle, ref diData, ref @params, Marshal.SizeOf(@params));
+            if (res == false) throw new Win32Exception();
+            res = SetupAPIDLL.SetupDiCallClassInstaller(DiFunction.PropertyChange, handle, ref diData);
+            if (res == false)
             {
                 int err = Marshal.GetLastWin32Error();
                 if (err == (int)SetupApiError.NotDisableable)
